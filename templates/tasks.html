@@ -1,0 +1,156 @@
+{% extends "_base.html" %}
+{% block title %}待办任务 - 供应商管理系统{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>⏰ 催办任务</h2>
+            <button class="btn btn-primary btn-sm" onclick="loadReminderTasks()">🔄 刷新</button>
+        </div>
+        <div id="reminderList" style="margin-top: 15px;">
+            <div style="text-align: center; padding: 30px;"><div class="loading"></div> 加载中...</div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>✅ 待审批等级变更</h2>
+            <button class="btn btn-primary btn-sm" onclick="loadApprovalTasks()">🔄 刷新</button>
+        </div>
+        <div id="approvalList" style="margin-top: 15px;">
+            <div style="text-align: center; padding: 30px;"><div class="loading"></div> 加载中...</div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="approveModal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3>✅ 审批等级变更</h3>
+            <button class="close-btn">&times;</button>
+        </div>
+        <div id="approveDetail" style="margin-bottom: 20px;"></div>
+        <form id="approveForm" onsubmit="doApprove(event)">
+            <div class="form-group">
+                <label>审批人</label>
+                <input type="text" name="approver" value="系统管理员" required>
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="Utils.hideModal('approveModal')">取消</button>
+                <button type="submit" class="btn btn-success">确认批准</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentApprovalId = null;
+
+async function loadReminderTasks() {
+    const result = await API.getReminderTasks();
+    const container = document.getElementById('reminderList');
+    
+    if (result.success && result.data.length > 0) {
+        container.innerHTML = result.data.map(t => `
+            <div style="padding: 15px; background: #fef3c7; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #f59e0b;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h4 style="margin-bottom: 5px;">${t.title}</h4>
+                        <p style="color: #666; font-size: 13px; margin: 3px 0;">
+                            <a href="/supplier/${t.supplier_id}" style="color: #667eea;">${t.supplier_name}</a>
+                        </p>
+                        <p style="color: #999; font-size: 12px; margin: 3px 0;">${t.description}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        ${Utils.getPriorityBadge(t.priority)}
+                        <p style="color: #999; font-size: 12px; margin-top: 5px;">截止: ${Utils.formatDate(t.due_date)}</p>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; display: flex; gap: 10px; font-size: 12px; color: #666;">
+                    <span>已提醒: ${t.reminder_count} 次</span>
+                    <span>上次提醒: ${Utils.formatDate(t.last_reminder_date)}</span>
+                    <span>创建: ${t.created_at}</span>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><p>暂无催办任务</p></div>';
+    }
+}
+
+async function loadApprovalTasks() {
+    const result = await API.getApprovalTasks();
+    const container = document.getElementById('approvalList');
+    
+    if (result.success && result.data.length > 0) {
+        container.innerHTML = result.data.map(a => `
+            <div style="padding: 15px; background: #dbeafe; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #3b82f6;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h4 style="margin-bottom: 5px;">
+                            ${Utils.getLevelBadge(a.old_level)} 
+                            <span style="color: #999;">→</span> 
+                            ${Utils.getLevelBadge(a.new_level)}
+                        </h4>
+                        <p style="color: #666; font-size: 13px; margin: 3px 0;">
+                            <a href="/supplier/${a.supplier_id}" style="color: #667eea;">${a.supplier_name}</a>
+                        </p>
+                        <p style="color: #999; font-size: 12px; margin: 3px 0;">${a.reason}</p>
+                        <p style="color: #666; font-size: 12px; margin: 5px 0;">
+                            得分变化: ${a.score_before?.toFixed(1)} → ${a.score_after?.toFixed(1)}
+                        </p>
+                    </div>
+                    <div style="text-align: right;">
+                        <span class="badge badge-pending">待审批</span>
+                        <p style="color: #999; font-size: 12px; margin-top: 5px;">${a.created_at?.substring(0, 16)}</p>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; text-align: right;">
+                    <button class="btn btn-success btn-sm" onclick="showApproveModal(${a.id}, ${JSON.stringify(a).replace(/"/g, '&quot;')})">✅ 批准</button>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><p>暂无待审批事项</p></div>';
+    }
+}
+
+function showApproveModal(id, data) {
+    currentApprovalId = id;
+    document.getElementById('approveDetail').innerHTML = `
+        <div class="alert alert-info">
+            <p><strong>供应商:</strong> ${data.supplier_name}</p>
+            <p><strong>等级变更:</strong> ${data.old_level || '无'} → ${data.new_level}</p>
+            <p><strong>变更类型:</strong> ${data.change_type}</p>
+            <p><strong>原因:</strong> ${data.reason}</p>
+        </div>
+    `;
+    Utils.showModal('approveModal');
+}
+
+async function doApprove(e) {
+    e.preventDefault();
+    const approver = new FormData(e.target).get('approver');
+    
+    Utils.showMessage('正在审批...', 'info');
+    const result = await API.approveLevelChange(currentApprovalId, approver);
+    
+    if (result.success) {
+        Utils.showMessage('审批成功！', 'success');
+        Utils.hideModal('approveModal');
+        loadApprovalTasks();
+    } else {
+        Utils.showMessage(result.error || '审批失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadReminderTasks();
+    loadApprovalTasks();
+});
+</script>
+{% endblock %}

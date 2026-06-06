@@ -1,13 +1,33 @@
 import os
 import re
 import json
+import platform
 from datetime import datetime, date
 from typing import Dict, Optional, Tuple
 from config import UPLOAD_DIR
 
+try:
+    from PIL import Image
+    import pytesseract
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
+
 
 class OCREngine:
-    def __init__(self):
+    def __init__(self, tesseract_cmd: str = None):
+        if TESSERACT_AVAILABLE and tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        elif TESSERACT_AVAILABLE and platform.system() == 'Windows':
+            possible_paths = [
+                r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+                r'C:\Users\%s\AppData\Local\Programs\Tesseract-OCR\tesseract.exe' % os.environ.get('USERNAME', ''),
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    break
         self.patterns = {
             'cert_number': [
                 r'证书编号[：:]\s*([A-Z0-9]+)',
@@ -73,17 +93,45 @@ class OCREngine:
             return {'success': False, 'error': f'识别失败: {str(e)}'}
 
     def _recognize_image(self, file_path: str) -> Dict:
+        if not TESSERACT_AVAILABLE:
+            print(f'[OCR提示] pytesseract未安装，使用模拟模式识别: {os.path.basename(file_path)}')
+            return self._simulate_recognition(file_path)
+
         try:
-            from PIL import Image
-            import pytesseract
             image = Image.open(file_path)
             text = pytesseract.image_to_string(image, lang='chi_sim+eng')
+            if not text or len(text.strip()) < 10:
+                print(f'[OCR提示] 识别文本较少，使用模拟模式辅助: {os.path.basename(file_path)}')
+                return self._simulate_recognition(file_path)
             return self._parse_text(text, file_path)
-        except ImportError:
+        except pytesseract.TesseractNotFoundError:
+            print(f'[OCR提示] Tesseract可执行文件未找到，请安装Tesseract-OCR。使用模拟模式。')
+            return self._simulate_recognition(file_path)
+        except Exception as e:
+            print(f'[OCR错误] 识别失败: {str(e)}，使用模拟模式')
             return self._simulate_recognition(file_path)
 
     def _recognize_pdf(self, file_path: str) -> Dict:
-        return self._simulate_recognition(file_path)
+        try:
+            if not TESSERACT_AVAILABLE:
+                raise ImportError
+            from PIL import Image
+            import pytesseract
+            try:
+                from pdf2image import convert_from_path
+                images = convert_from_path(file_path, dpi=200)
+                all_text = []
+                for i, img in enumerate(images[:3]):
+                    text = pytesseract.image_to_string(img, lang='chi_sim+eng')
+                    all_text.append(text)
+                full_text = '\n'.join(all_text)
+                if full_text and len(full_text.strip()) >= 10:
+                    return self._parse_text(full_text, file_path)
+            except ImportError:
+                pass
+            return self._simulate_recognition(file_path)
+        except Exception:
+            return self._simulate_recognition(file_path)
 
     def _recognize_text(self, file_path: str) -> Dict:
         with open(file_path, 'r', encoding='utf-8') as f:

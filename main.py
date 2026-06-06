@@ -190,6 +190,18 @@ class SupplierManagementSystem:
         self.report_generator.close()
 
 
+def start_web_server():
+    from app import app
+    init_db()
+    print('\n' + '=' * 60)
+    print('🌐 供应商管理系统 Web 服务')
+    print('=' * 60)
+    print('访问地址: http://127.0.0.1:5000')
+    print('按 Ctrl+C 停止服务')
+    print('=' * 60 + '\n')
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
+
 def print_menu():
     print('\n' + '=' * 60)
     print('供应商准入与绩效自动化管理系统')
@@ -200,6 +212,7 @@ def print_menu():
     print('4. 手动生成月度报告')
     print('5. 查询供应商')
     print('6. 查看操作日志')
+    print('7. 启动Web管理界面')
     print('0. 退出系统')
     print('=' * 60)
 
@@ -232,10 +245,13 @@ def main():
             system.run_monthly_report_job()
             system.close()
             return
+        elif sys.argv[1] == 'web':
+            start_web_server()
+            return
 
     while True:
         print_menu()
-        choice = input('请选择操作 (0-6): ').strip()
+        choice = input('请选择操作 (0-7): ').strip()
 
         if choice == '0':
             system.close()
@@ -271,6 +287,10 @@ def main():
             print(f'\n共 {len(logs)} 条操作日志:')
             for log in logs[:20]:
                 print(f"  [{log['created_at'].strftime('%Y-%m-%d %H:%M')}] {log['operator']} | {log['operation_type']} | {log['description']}")
+        elif choice == '7':
+            system.close()
+            start_web_server()
+            break
         else:
             print('无效选择，请重新输入')
 

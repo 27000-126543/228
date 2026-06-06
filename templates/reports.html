@@ -1,0 +1,75 @@
+{% extends "_base.html" %}
+{% block title %}报告中心 - 供应商管理系统{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>📊 供应商画像报告</h2>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-primary" onclick="loadReports()">🔄 刷新列表</button>
+            <button class="btn btn-success" onclick="runDailyTasks()">⚡ 执行每日任务</button>
+        </div>
+    </div>
+    
+    <div id="reportList" style="margin-top: 20px;">
+        <div style="text-align: center; padding: 30px;"><div class="loading"></div> 加载中...</div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadReports() {
+    const result = await API.getReports();
+    const container = document.getElementById('reportList');
+    
+    if (result.success && result.data.length > 0) {
+        container.innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>报告名称</th>
+                        <th>供应商编码</th>
+                        <th>月份</th>
+                        <th>大小</th>
+                        <th>生成时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${result.data.map(r => `
+                        <tr>
+                            <td>${r.filename}</td>
+                            <td>${r.supplier_code}</td>
+                            <td>${r.year}年${r.month}月</td>
+                            <td>${r.size} KB</td>
+                            <td>${r.created}</td>
+                            <td>
+                                <a href="${API.downloadReport(r.pdf_path)}" class="btn btn-sm btn-primary" target="_blank">📥 PDF</a>
+                                ${r.excel_path ? `<a href="${API.downloadReport(r.excel_path)}" class="btn btn-sm btn-success" target="_blank">📊 Excel</a>` : ''}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>暂无报告，请先在供应商详情页生成画像报告</p></div>';
+    }
+}
+
+async function runDailyTasks() {
+    Utils.showMessage('正在执行每日任务...', 'info');
+    const result = await API.runDailyTasks();
+    if (result.success) {
+        Utils.showMessage(result.message, 'success');
+        loadReports();
+    } else {
+        Utils.showMessage(result.error || '执行失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadReports);
+</script>
+{% endblock %}

@@ -1,0 +1,231 @@
+{% extends "_base.html" %}
+{% block title %}供应商详情 - 供应商管理系统{% endblock %}
+
+{% block content %}
+<div id="supplierInfo">
+    <div class="loading" style="text-align: center; padding: 50px;">加载中...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const supplierId = {{ supplier_id }};
+
+async function loadSupplierDetail() {
+    const [infoResult, perfResult, issueResult, logResult, qualResult] = await Promise.all([
+        API.getSupplier(supplierId),
+        API.getSupplierPerformance(supplierId),
+        API.getSupplierQualityIssues(supplierId),
+        API.getSupplierLogs(supplierId),
+        API.getSupplierQualifications(supplierId)
+    ]);
+
+    const container = document.getElementById('supplierInfo');
+    
+    if (!infoResult.success) {
+        container.innerHTML = `<div class="alert alert-error">加载失败: ${infoResult.error}</div>`;
+        return;
+    }
+
+    const s = infoResult.supplier;
+    
+    container.innerHTML = `
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <h2 style="margin-bottom: 5px;">📋 ${s.name}</h2>
+                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                        <span style="color: #999;">${s.code}</span>
+                        ${Utils.getLevelBadge(s.level)}
+                        ${Utils.getStatusBadge(s.status)}
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-success" onclick="generateReport()">📊 生成画像报告</button>
+                    <button class="btn btn-secondary" onclick="history.back()">← 返回</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-4">
+            <div class="stat-card">
+                <div class="label">综合评分</div>
+                <div class="number">${s.total_score || '-'}</div>
+                ${s.total_score ? `<div class="score-bar" style="margin-top: 10px;"><div class="score-fill ${s.total_score >= 90 ? 'excellent' : s.total_score >= 80 ? 'good' : s.total_score >= 70 ? 'average' : 'poor'}" style="width: ${Math.min(100, s.total_score)}%"></div></div>` : ''}
+            </div>
+            <div class="stat-card green">
+                <div class="label">质量体系</div>
+                <div class="number">${s.quality_score || '-'}</div>
+            </div>
+            <div class="stat-card orange">
+                <div class="label">环保资质</div>
+                <div class="number">${s.environmental_score || '-'}</div>
+            </div>
+            <div class="stat-card red">
+                <div class="label">财务状况</div>
+                <div class="number">${s.financial_score || '-'}</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="tab-basic">基本信息</div>
+            <div class="tab" data-tab="tab-qual">资质文件</div>
+            <div class="tab" data-tab="tab-perf">绩效数据</div>
+            <div class="tab" data-tab="tab-issues">质量问题</div>
+            <div class="tab" data-tab="tab-logs">操作日志</div>
+        </div>
+
+        <div class="tab-content active" id="tab-basic">
+            <div class="card">
+                <h2>基本信息</h2>
+                <div class="grid-2">
+                    <div>
+                        <div class="form-group"><label>联系人</label><div>${s.contact_person || '-'}</div></div>
+                        <div class="form-group"><label>联系电话</label><div>${s.contact_phone || '-'}</div></div>
+                        <div class="form-group"><label>联系邮箱</label><div>${s.contact_email || '-'}</div></div>
+                        <div class="form-group"><label>所属行业</label><div>${s.industry || '-'}</div></div>
+                    </div>
+                    <div>
+                        <div class="form-group"><label>地址</label><div>${s.address || '-'}</div></div>
+                        <div class="form-group"><label>注册资本</label><div>${s.registered_capital ? '¥' + Number(s.registered_capital).toLocaleString() : '-'}</div></div>
+                        <div class="form-group"><label>成立日期</label><div>${Utils.formatDate(s.establishment_date)}</div></div>
+                        <div class="form-group"><label>准入日期</label><div>${Utils.formatDate(s.admission_date)}</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-qual">
+            <div class="card">
+                <h2>资质文件 (${qualResult.data ? qualResult.data.length : 0})</h2>
+                ${qualResult.data && qualResult.data.length > 0 ? `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>资质类型</th>
+                                <th>证书编号</th>
+                                <th>发证机构</th>
+                                <th>有效期</th>
+                                <th>状态</th>
+                                <th>审核备注</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${qualResult.data.map(q => `
+                                <tr>
+                                    <td>${q.qual_type}</td>
+                                    <td>${q.cert_number || '-'}</td>
+                                    <td>${q.issuing_authority || '-'}</td>
+                                    <td>${Utils.formatDate(q.issue_date)} ~ ${Utils.formatDate(q.expiry_date)}</td>
+                                    <td>${q.is_verified ? '<span class="badge badge-approved">已通过</span>' : '<span class="badge badge-pending">待审核</span>'}</td>
+                                    <td>${q.verification_note || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                ` : '<div class="empty-state"><div class="icon">📄</div><p>暂无资质文件</p></div>'}
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-perf">
+            <div class="card">
+                <h2>绩效数据 (近12个月)</h2>
+                ${perfResult.data && perfResult.data.length > 0 ? `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>月份</th>
+                                <th>准时率</th>
+                                <th>合格率</th>
+                                <th>响应时效(小时)</th>
+                                <th>订单数</th>
+                                <th>交易额</th>
+                                <th>投诉数</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${perfResult.data.slice(-12).reverse().map(p => `
+                                <tr>
+                                    <td>${p.year}-${String(p.month).padStart(2, '0')}</td>
+                                    <td>${p.on_time_rate?.toFixed(2)}%</td>
+                                    <td>${p.quality_pass_rate?.toFixed(2)}%</td>
+                                    <td>${p.response_time_hours?.toFixed(2)}</td>
+                                    <td>${p.total_orders || 0}</td>
+                                    <td>${Utils.formatMoney(p.total_amount)}</td>
+                                    <td>${p.complaint_count || 0}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                ` : '<div class="empty-state"><div class="icon">📊</div><p>暂无绩效数据</p></div>'}
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-issues">
+            <div class="card">
+                <h2>质量问题记录</h2>
+                ${issueResult.data && issueResult.data.length > 0 ? `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>问题日期</th>
+                                <th>问题类型</th>
+                                <th>严重程度</th>
+                                <th>描述</th>
+                                <th>涉及订单</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${issueResult.data.map(i => `
+                                <tr>
+                                    <td>${Utils.formatDate(i.issue_date)}</td>
+                                    <td>${i.issue_type || '-'}</td>
+                                    <td>${Utils.getSeverityBadge(i.severity)}</td>
+                                    <td>${i.description || '-'}</td>
+                                    <td>${i.affected_orders || '-'}</td>
+                                    <td>${i.is_resolved ? '<span class="badge badge-approved">已解决</span>' : '<span class="badge badge-pending">未解决</span>'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                ` : '<div class="empty-state"><div class="icon">✅</div><p>暂无质量问题记录</p></div>'}
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-logs">
+            <div class="card">
+                <h2>操作日志</h2>
+                ${logResult.data && logResult.data.length > 0 ? `
+                    <div class="timeline">
+                        ${logResult.data.map(log => `
+                            <div class="timeline-item">
+                                <div class="time">${log.created_at} | ${log.operator} | ${log.operation_type}</div>
+                                <div class="content">${log.description}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : '<div class="empty-state"><div class="icon">📝</div><p>暂无操作日志</p></div>'}
+            </div>
+        </div>
+    `;
+    
+    Utils.initTabs();
+}
+
+async function generateReport() {
+    Utils.showMessage('正在生成报告...', 'info');
+    const result = await API.generateReport(supplierId);
+    if (result.success) {
+        Utils.showMessage('报告生成成功！', 'success');
+        if (result.pdf_path) {
+            window.open(API.downloadReport(result.pdf_path), '_blank');
+        }
+    } else {
+        Utils.showMessage(result.error || '生成失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadSupplierDetail);
+</script>
+{% endblock %}

@@ -1,0 +1,303 @@
+{% extends "_base.html" %}
+{% block title %}准入审核 - 供应商管理系统{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+    <div class="card">
+        <h2>📋 待审核供应商</h2>
+        <div id="pendingList">
+            <div style="text-align: center; padding: 30px;"><div class="loading"></div> 加载中...</div>
+        </div>
+    </div>
+    
+    <div class="card" id="detailCard" style="display: none;">
+        <h2>📝 审核详情</h2>
+        <div id="supplierDetail">
+            <p style="color: #999; text-align: center; padding: 30px;">请选择左侧供应商查看详情</p>
+        </div>
+    </div>
+</div>
+
+<div class="card" id="qualificationsCard" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>📄 资质文件管理</h2>
+        <button class="btn btn-primary" onclick="showUploadModal()">➕ 上传资质</button>
+    </div>
+    <div id="qualificationList" style="margin-top: 20px;">
+        <div class="empty-state"><div class="icon">📄</div><p>暂无资质文件</p></div>
+    </div>
+</div>
+
+<div class="card" id="reviewCard" style="display: none;">
+    <h2>✅ 审核操作</h2>
+    <div id="reviewSection" style="text-align: center; padding: 20px;">
+        <button class="btn btn-success btn-lg" onclick="doReview()" style="font-size: 16px; padding: 15px 40px;">
+            🚀 执行智能审核
+        </button>
+    </div>
+    <div id="reviewResult" style="display: none; margin-top: 20px;"></div>
+</div>
+
+<div class="modal" id="uploadModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>📤 上传资质文件</h3>
+            <button class="close-btn">&times;</button>
+        </div>
+        <form id="uploadForm" onsubmit="uploadQualification(event)">
+            <div class="form-group">
+                <label>资质类型 *</label>
+                <select name="qual_type" required>
+                    <option value="">请选择</option>
+                    <option value="ISO9001">ISO9001 质量管理体系</option>
+                    <option value="ISO14001">ISO14001 环境管理体系</option>
+                    <option value="ISO45001">ISO45001 职业健康安全</option>
+                    <option value="BusinessLicense">营业执照</option>
+                    <option value="Financial">财务审计报告</option>
+                    <option value="Other">其他资质</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>选择文件 *</label>
+                <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" name="file" accept=".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.txt" required>
+                    <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                    <p>点击选择文件或拖拽到此处</p>
+                    <p style="color: #999; font-size: 12px;">支持 PDF、JPG、PNG、TXT 等格式</p>
+                    <p id="selectedFileName" style="color: #667eea; margin-top: 10px;"></p>
+                </div>
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="Utils.hideModal('uploadModal')">取消</button>
+                <button type="submit" class="btn btn-primary">上传并识别</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentSupplierId = null;
+
+async function loadPendingSuppliers() {
+    const result = await API.getPendingSuppliers();
+    const container = document.getElementById('pendingList');
+    
+    if (result.success && result.data.length > 0) {
+        container.innerHTML = `
+            <div style="max-height: 500px; overflow-y: auto;">
+                ${result.data.map(s => `
+                    <div class="supplier-item" onclick="selectSupplier(${s.id})" 
+                         style="padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: all 0.3s; border-radius: 6px; margin-bottom: 8px;"
+                         onmouseover="this.style.background='#f8f9fa'"
+                         onmouseout="this.style.background='transparent'"
+                         id="supplier-item-${s.id}">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <h4 style="margin-bottom: 5px;">${s.name}</h4>
+                                <p style="color: #999; font-size: 12px; margin: 3px 0;">${s.code} | ${s.industry || '-'}</p>
+                                <p style="color: #999; font-size: 12px; margin: 3px 0;">${s.contact_person || '-'} | ${s.contact_phone || '-'}</p>
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="badge badge-pending">待审核</span>
+                                <p style="color: #999; font-size: 12px; margin-top: 5px;">${s.verified_count}/${s.qual_count} 已审核</p>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        
+        const hash = window.location.hash;
+        if (hash) {
+            const id = parseInt(hash.replace('#supplier-', ''));
+            if (id) selectSupplier(id);
+        }
+    } else {
+        container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><p>暂无待审核供应商</p></div>';
+    }
+}
+
+async function selectSupplier(id) {
+    currentSupplierId = id;
+    
+    document.querySelectorAll('.supplier-item').forEach(item => {
+        item.style.background = 'transparent';
+    });
+    const item = document.getElementById(`supplier-item-${id}`);
+    if (item) item.style.background = '#eef2ff';
+    
+    const [infoResult, qualResult] = await Promise.all([
+        API.getSupplier(id),
+        API.getSupplierQualifications(id)
+    ]);
+    
+    const s = infoResult.supplier;
+    document.getElementById('detailCard').style.display = 'block';
+    document.getElementById('supplierDetail').innerHTML = `
+        <div class="grid-2">
+            <div>
+                <h3 style="margin-bottom: 15px;">${s.name}</h3>
+                <div class="form-group"><label>供应商编码</label><div>${s.code}</div></div>
+                <div class="form-group"><label>所属行业</label><div>${s.industry || '-'}</div></div>
+                <div class="form-group"><label>注册资本</label><div>${s.registered_capital ? '¥' + Number(s.registered_capital).toLocaleString() : '-'}</div></div>
+                <div class="form-group"><label>成立日期</label><div>${Utils.formatDate(s.establishment_date)}</div></div>
+            </div>
+            <div>
+                <h3 style="margin-bottom: 15px;">&nbsp;</h3>
+                <div class="form-group"><label>联系人</label><div>${s.contact_person || '-'}</div></div>
+                <div class="form-group"><label>联系电话</label><div>${s.contact_phone || '-'}</div></div>
+                <div class="form-group"><label>联系邮箱</label><div>${s.contact_email || '-'}</div></div>
+                <div class="form-group"><label>地址</label><div>${s.address || '-'}</div></div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('qualificationsCard').style.display = 'block';
+    renderQualifications(qualResult.data || []);
+    
+    document.getElementById('reviewCard').style.display = 'block';
+    document.getElementById('reviewResult').style.display = 'none';
+    document.getElementById('reviewSection').style.display = 'block';
+}
+
+function renderQualifications(quals) {
+    const container = document.getElementById('qualificationList');
+    if (quals.length > 0) {
+        container.innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>资质类型</th>
+                        <th>证书编号 (OCR识别)</th>
+                        <th>发证机构</th>
+                        <th>有效期</th>
+                        <th>审核状态</th>
+                        <th>备注</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${quals.map(q => `
+                        <tr>
+                            <td>${q.qual_type}</td>
+                            <td>${q.cert_number || '<span style="color: #999;">未识别</span>'}</td>
+                            <td>${q.issuing_authority || '-'}</td>
+                            <td>${Utils.formatDate(q.issue_date)} ~ ${Utils.formatDate(q.expiry_date)}</td>
+                            <td>${q.is_verified ? '<span class="badge badge-approved">已通过</span>' : '<span class="badge badge-pending">待审核</span>'}</td>
+                            <td>${q.verification_note || '-'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📄</div><p>暂无资质文件，请上传</p></div>';
+    }
+}
+
+function showUploadModal() {
+    if (!currentSupplierId) {
+        Utils.showMessage('请先选择供应商', 'warning');
+        return;
+    }
+    document.getElementById('uploadForm').reset();
+    document.getElementById('selectedFileName').textContent = '';
+    Utils.showModal('uploadModal');
+}
+
+document.getElementById('fileInput')?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        document.getElementById('selectedFileName').textContent = `已选择: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    }
+});
+
+async function uploadQualification(e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    
+    Utils.showMessage('正在上传并识别...', 'info');
+    const result = await API.uploadQualification(currentSupplierId, formData.get('qual_type'), formData.get('file'));
+    
+    if (result.success) {
+        Utils.showMessage('上传成功，OCR识别完成！', 'success');
+        Utils.hideModal('uploadModal');
+        const qualResult = await API.getSupplierQualifications(currentSupplierId);
+        renderQualifications(qualResult.data || []);
+        loadPendingSuppliers();
+    } else {
+        Utils.showMessage(result.error || '上传失败', 'error');
+    }
+}
+
+async function doReview() {
+    if (!currentSupplierId) return;
+    
+    Utils.showMessage('正在执行智能审核...', 'info');
+    const result = await API.reviewSupplier(currentSupplierId);
+    
+    const container = document.getElementById('reviewResult');
+    container.style.display = 'block';
+    document.getElementById('reviewSection').style.display = 'none';
+    
+    if (result.success) {
+        if (result.action === 'rejected') {
+            container.innerHTML = `
+                <div class="alert alert-error">
+                    <h3>❌ 审核未通过</h3>
+                    <p>${result.message}</p>
+                    <p>综合得分: <strong>${result.scores.total_score}</strong> 分 (最低要求: 70分)</p>
+                    <p>已自动发送感谢信</p>
+                </div>
+                <div style="margin-top: 15px;">
+                    <h4>评分详情:</h4>
+                    <div class="grid-3" style="margin-top: 10px;">
+                        <div class="stat-card green"><div class="label">质量体系</div><div class="number">${result.scores.quality_score}</div></div>
+                        <div class="stat-card orange"><div class="label">环保资质</div><div class="number">${result.scores.environmental_score}</div></div>
+                        <div class="stat-card red"><div class="label">财务状况</div><div class="number">${result.scores.financial_score}</div></div>
+                    </div>
+                </div>
+            `;
+        } else if (result.action === 'pending_docs') {
+            container.innerHTML = `
+                <div class="alert alert-warning">
+                    <h3>⚠️ 资料不全</h3>
+                    <p>${result.message}</p>
+                    <p>缺少文件: <strong>${result.missing_documents.join('、')}</strong></p>
+                    <p>已生成催办任务，将每2天提醒一次</p>
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="alert alert-success">
+                    <h3>✅ 审核通过</h3>
+                    <p>${result.message}</p>
+                    <p>综合得分: <strong>${result.scores.total_score}</strong> 分</p>
+                    <p>供应商等级: <strong>${result.level} - ${result.level_description}</strong></p>
+                </div>
+                <div style="margin-top: 15px;">
+                    <h4>评分详情:</h4>
+                    <div class="grid-3" style="margin-top: 10px;">
+                        <div class="stat-card green"><div class="label">质量体系</div><div class="number">${result.scores.quality_score}</div></div>
+                        <div class="stat-card orange"><div class="label">环保资质</div><div class="number">${result.scores.environmental_score}</div></div>
+                        <div class="stat-card red"><div class="label">财务状况</div><div class="number">${result.scores.financial_score}</div></div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        setTimeout(() => {
+            loadPendingSuppliers();
+            selectSupplier(currentSupplierId);
+        }, 1000);
+    } else {
+        container.innerHTML = `<div class="alert alert-error">审核失败: ${result.error}</div>`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadPendingSuppliers);
+</script>
+{% endblock %}

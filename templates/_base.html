@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}供应商管理系统{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏭 供应商准入与绩效自动化管理系统</h1>
+            <p>全生命周期供应商管理平台</p>
+        </div>
+        
+        <nav class="nav">
+            <a href="/suppliers" class="{% if request.path == '/suppliers' %}active{% endif %}">供应商列表</a>
+            <a href="/review" class="{% if request.path == '/review' %}active{% endif %}">准入审核</a>
+            <a href="/tasks" class="{% if request.path == '/tasks' %}active{% endif %}">待办任务</a>
+            <a href="/reports" class="{% if request.path == '/reports' %}active{% endif %}">报告中心</a>
+        </nav>
+        
+        {% block content %}{% endblock %}
+    </div>
+    
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

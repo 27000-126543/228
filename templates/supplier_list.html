@@ -1,0 +1,255 @@
+{% extends "_base.html" %}
+{% block title %}供应商列表 - 供应商管理系统{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔍 供应商查询</h2>
+    
+    <div class="filter-bar">
+        <div class="filter-group">
+            <label>供应商名称</label>
+            <input type="text" id="filterName" placeholder="输入名称关键词">
+        </div>
+        <div class="filter-group">
+            <label>供应商等级</label>
+            <select id="filterLevel">
+                <option value="">全部等级</option>
+                <option value="S">S级 - 战略供应商</option>
+                <option value="A">A级 - 核心供应商</option>
+                <option value="B">B级 - 合格供应商</option>
+                <option value="C">C级 - 观察供应商</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>状态</label>
+            <select id="filterStatus">
+                <option value="">全部状态</option>
+                <option value="approved">已通过</option>
+                <option value="pending">待审核</option>
+                <option value="rejected">已拒绝</option>
+                <option value="suspended">已暂停</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>准入日期起</label>
+            <input type="date" id="filterStartDate">
+        </div>
+        <div class="filter-group">
+            <label>准入日期止</label>
+            <input type="date" id="filterEndDate">
+        </div>
+        <div class="filter-group" style="justify-content: flex-end;">
+            <label>&nbsp;</label>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-primary" onclick="loadSuppliers()">🔍 查询</button>
+                <button class="btn btn-secondary" onclick="resetFilters()">🔄 重置</button>
+                <button class="btn btn-success" onclick="exportSelected()">📥 导出选中</button>
+                <button class="btn btn-warning" onclick="showCreateModal()">➕ 新增</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="supplierTable">
+        <table>
+            <thead>
+                <tr>
+                    <th width="40"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                    <th>供应商编码</th>
+                    <th>供应商名称</th>
+                    <th>所属行业</th>
+                    <th>等级</th>
+                    <th>综合评分</th>
+                    <th>状态</th>
+                    <th>准入日期</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="supplierTbody">
+                <tr><td colspan="9" style="text-align: center; padding: 40px;"><div class="loading"></div> 加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal" id="createModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>➕ 新增供应商</h3>
+            <button class="close-btn">&times;</button>
+        </div>
+        <form id="createForm" onsubmit="createSupplier(event)">
+            <div class="form-group">
+                <label>供应商名称 *</label>
+                <input type="text" name="supplier_name" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>联系人</label>
+                    <input type="text" name="contact_person">
+                </div>
+                <div class="form-group">
+                    <label>联系电话</label>
+                    <input type="text" name="contact_phone">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>联系邮箱</label>
+                <input type="email" name="contact_email">
+            </div>
+            <div class="form-group">
+                <label>地址</label>
+                <input type="text" name="address">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>所属行业</label>
+                    <select name="industry">
+                        <option value="">请选择</option>
+                        <option value="电子信息">电子信息</option>
+                        <option value="制造业">制造业</option>
+                        <option value="高新技术">高新技术</option>
+                        <option value="服务业">服务业</option>
+                        <option value="贸易">贸易</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>注册资本（元）</label>
+                    <input type="number" name="registered_capital">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>成立日期</label>
+                <input type="date" name="establishment_date">
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="Utils.hideModal('createModal')">取消</button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedIds = new Set();
+
+async function loadSuppliers() {
+    const params = {
+        name: document.getElementById('filterName').value,
+        level: document.getElementById('filterLevel').value,
+        status: document.getElementById('filterStatus').value,
+        start_date: document.getElementById('filterStartDate').value,
+        end_date: document.getElementById('filterEndDate').value
+    };
+    
+    const result = await API.getSuppliers(params);
+    const tbody = document.getElementById('supplierTbody');
+    
+    if (result.success && result.data.length > 0) {
+        tbody.innerHTML = result.data.map(s => `
+            <tr>
+                <td><input type="checkbox" class="supplier-check" value="${s.id}" onchange="toggleSelect(${s.id})" ${selectedIds.has(s.id) ? 'checked' : ''}></td>
+                <td>${s.code}</td>
+                <td>${s.name}</td>
+                <td>${s.industry || '-'}</td>
+                <td>${Utils.getLevelBadge(s.level)}</td>
+                <td style="min-width: 150px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span>${s.total_score || '-'}</span>
+                        ${s.total_score ? Utils.getScoreBar(s.total_score) : ''}
+                    </div>
+                </td>
+                <td>${Utils.getStatusBadge(s.status)}</td>
+                <td>${Utils.formatDate(s.admission_date)}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="viewSupplier(${s.id})">查看</button>
+                    ${s.status === 'pending' ? `<button class="btn btn-sm btn-warning" onclick="goReview(${s.id})">审核</button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+    } else {
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div><p>暂无数据</p></div></td></tr>';
+    }
+}
+
+function resetFilters() {
+    document.getElementById('filterName').value = '';
+    document.getElementById('filterLevel').value = '';
+    document.getElementById('filterStatus').value = '';
+    document.getElementById('filterStartDate').value = '';
+    document.getElementById('filterEndDate').value = '';
+    selectedIds.clear();
+    loadSuppliers();
+}
+
+function toggleSelectAll() {
+    const checked = document.getElementById('selectAll').checked;
+    document.querySelectorAll('.supplier-check').forEach(cb => {
+        cb.checked = checked;
+        if (checked) selectedIds.add(Number(cb.value));
+        else selectedIds.delete(Number(cb.value));
+    });
+}
+
+function toggleSelect(id) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+}
+
+function viewSupplier(id) {
+    window.location.href = `/supplier/${id}`;
+}
+
+function goReview(id) {
+    window.location.href = `/review#supplier-${id}`;
+}
+
+async function exportSelected() {
+    if (selectedIds.size === 0) {
+        Utils.showMessage('请先选择要导出的供应商', 'warning');
+        return;
+    }
+    Utils.showMessage('正在生成导出文件...', 'info');
+    const result = await API.exportSuppliers(Array.from(selectedIds));
+    if (result.blob) {
+        Utils.downloadBlob(result.blob, result.filename);
+        Utils.showMessage('导出成功！', 'success');
+    } else {
+        Utils.showMessage(result.error || '导出失败', 'error');
+    }
+}
+
+function showCreateModal() {
+    document.getElementById('createForm').reset();
+    Utils.showModal('createModal');
+}
+
+async function createSupplier(e) {
+    e.preventDefault();
+    const form = e.target;
+    const data = Object.fromEntries(new FormData(form));
+    
+    const result = await API.createSupplier(data);
+    if (result.success) {
+        Utils.showMessage('供应商创建成功！', 'success');
+        Utils.hideModal('createModal');
+        loadSuppliers();
+    } else {
+        Utils.showMessage(result.error || '创建失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadSuppliers();
+    
+    document.querySelectorAll('#filterName, #filterLevel, #filterStatus, #filterStartDate, #filterEndDate').forEach(el => {
+        el.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') loadSuppliers();
+        });
+    });
+});
+</script>
+{% endblock %}
